@@ -258,6 +258,7 @@ def fit_and_evaluate(shipments: list[dict[str, Any]]) -> tuple[dict[str, Any], d
         "scales": scales,
         "delay_weights": delay_weights,
         "late_weights": late_weights,
+        "test_indices": test_indices,
     }
     return models, metrics
 

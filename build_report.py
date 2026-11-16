@@ -11,7 +11,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import ListFlowable, ListItem, PageBreak, Paragraph, SimpleDocTemplate
 
-from eta_model import fit_and_evaluate
+from eta_model import fit_and_evaluate, predict_shipment
 
 
 def load_shipments(path: Path) -> list[dict[str, str]]:
@@ -20,7 +20,14 @@ def load_shipments(path: Path) -> list[dict[str, str]]:
 
 
 def build_pdf(source: Path, dataset: Path, output: Path) -> None:
-    _, metrics = fit_and_evaluate(load_shipments(dataset))
+    shipments = load_shipments(dataset)
+    models, metrics = fit_and_evaluate(shipments)
+    example_shipment = shipments[models["test_indices"][0]]
+    prediction = predict_shipment(models, example_shipment)
+    contributions = ", ".join(
+        f"{item['feature']} ({item['hours']:+.1f} h)"
+        for item in prediction["contributions"][:3]
+    )
     replacements = {
         "test_shipments": f"{metrics['test_shipments']:.0f}",
         "mae_hours": f"{metrics['mae_hours']:.2f}",
@@ -30,6 +37,16 @@ def build_pdf(source: Path, dataset: Path, output: Path) -> None:
         "late_precision": f"{metrics['late_precision']:.3f}",
         "late_recall": f"{metrics['late_recall']:.3f}",
         "late_f1": f"{metrics['late_f1']:.3f}",
+        "example_shipment_id": example_shipment["shipment_id"],
+        "example_route": example_shipment["route"],
+        "example_scheduled_eta": example_shipment["scheduled_arrival"].replace("T", " "),
+        "example_predicted_eta": prediction["predicted_eta"].isoformat(timespec="minutes").replace("T", " "),
+        "example_predicted_delay": f"{prediction['predicted_delay_hours']:.2f}",
+        "example_actual_eta": example_shipment["actual_arrival"].replace("T", " "),
+        "example_actual_delay": f"{float(example_shipment['final_delay_hours']):.2f}",
+        "example_absolute_error": f"{abs(prediction['predicted_delay_hours'] - float(example_shipment['final_delay_hours'])):.2f}",
+        "example_late_probability": f"{prediction['late_probability']:.1%}",
+        "example_contributions": contributions,
     }
     report_text = source.read_text(encoding="utf-8")
     for key, value in replacements.items():
@@ -69,7 +86,11 @@ def build_pdf(source: Path, dataset: Path, output: Path) -> None:
 
     def flush_bullets() -> None:
         if bullet_items:
-            items = [ListItem(Paragraph(escape(item), styles["ReportBody"])) for item in bullet_items]
+            items = []
+            for item in bullet_items:
+                text = escape(item)
+                text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+                items.append(ListItem(Paragraph(text, styles["ReportBody"])))
             story.append(ListFlowable(items, bulletType="bullet", leftIndent=15, bulletFontSize=7))
             bullet_items.clear()
 
